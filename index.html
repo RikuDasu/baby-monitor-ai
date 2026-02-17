@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI ベビーモニター - RF-DETR WebGPU</title>
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --surface: #12121a;
+      --surface2: #1a1a25;
+      --border: #2a2a3a;
+      --text: #e0e0e8;
+      --text-dim: #888898;
+      --accent: #4a9eff;
+      --accent-dim: #2a5a9f;
+      --danger: #ff4a4a;
+      --success: #4aff8a;
+      --warning: #ffaa4a;
+      --font: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 13px;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    header h1 {
+      font-size: 15px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-bar {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .status-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .dot-green { background: var(--success); box-shadow: 0 0 6px var(--success); }
+    .dot-red { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+    .dot-yellow { background: var(--warning); box-shadow: 0 0 6px var(--warning); }
+    .dot-dim { background: var(--text-dim); }
+
+    /* ── Main Grid ── */
+    main {
+      display: grid;
+      grid-template-columns: 1fr 300px;
+      gap: 0;
+      height: calc(100vh - 82px);
+    }
+
+    @media (max-width: 860px) {
+      main {
+        grid-template-columns: 1fr;
+        height: auto;
+      }
+    }
+
+    /* ── Video Section ── */
+    #video-section {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      background: #000;
+      overflow: hidden;
+    }
+
+    .video-container {
+      position: relative;
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #webcam {
+      max-width: 100%;
+      max-height: 100%;
+      display: block;
+    }
+
+    #overlay {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: auto;
+    }
+
+    .video-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+
+    /* ── Sidebar ── */
+    #sidebar {
+      border-left: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    @media (max-width: 860px) {
+      #sidebar {
+        border-left: none;
+        border-top: 1px solid var(--border);
+      }
+    }
+
+    .panel {
+      padding: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .panel-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-dim);
+      margin-bottom: 10px;
+    }
+
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .setting-label {
+      color: var(--text-dim);
+      font-size: 12px;
+    }
+
+    input[type="range"] {
+      width: 110px;
+      accent-color: var(--accent);
+    }
+
+    input[type="text"], select {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-family: var(--font);
+      font-size: 12px;
+    }
+
+    select { cursor: pointer; }
+
+    /* ── Buttons ── */
+    button {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 5px 12px;
+      border-radius: 4px;
+      font-family: var(--font);
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    button:hover { background: var(--border); }
+
+    button.active {
+      background: var(--accent-dim);
+      border-color: var(--accent);
+      color: white;
+    }
+
+    button.danger { border-color: var(--danger); color: var(--danger); }
+    button.danger:hover { background: var(--danger); color: white; }
+
+    /* ── Alert Log ── */
+    #alert-log {
+      flex: 1;
+      overflow-y: auto;
+      max-height: 300px;
+    }
+
+    .log-entry {
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 11px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .log-time { color: var(--text-dim); white-space: nowrap; }
+    .log-msg { color: var(--text); }
+    .log-msg.alert { color: var(--danger); }
+    .log-msg.info { color: var(--accent); }
+    .log-msg.ok { color: var(--success); }
+
+    /* ── Progress Overlay ── */
+    #progress-container {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      z-index: 10;
+    }
+
+    .progress-bar {
+      width: 300px;
+      height: 4px;
+      background: var(--surface2);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: 12px;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: var(--accent);
+      transition: width 0.3s;
+      width: 0%;
+    }
+
+    #progress-text {
+      color: var(--text-dim);
+      font-size: 12px;
+      margin-top: 8px;
+    }
+
+    /* ── Footer ── */
+    footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 16px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    /* ── Checkbox ── */
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+
+    input[type="checkbox"] { accent-color: var(--accent); }
+
+    /* ── Zone Indicator ── */
+    .zone-indicator {
+      display: none;
+      padding: 4px 8px;
+      background: rgba(74, 158, 255, 0.15);
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      font-size: 11px;
+      color: var(--accent);
+    }
+
+    .zone-indicator.show { display: inline-block; }
+
+    /* ── Alert Flash ── */
+    @keyframes alertFlash {
+      0%, 100% { border-color: var(--border); }
+      50% { border-color: var(--danger); box-shadow: inset 0 0 40px rgba(255, 74, 74, 0.08); }
+    }
+
+    .alerting { animation: alertFlash 1s ease-in-out 5; }
+
+    .monitoring-active { box-shadow: inset 0 0 60px rgba(74, 158, 255, 0.04); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>
+      <span id="status-dot" class="dot dot-dim"></span>
+      AI Baby Monitor
+    </h1>
+    <div class="status-bar">
+      <div class="status-item">
+        <span id="webgpu-status" class="dot dot-dim"></span>
+        <span id="webgpu-label">WebGPU</span>
+      </div>
+      <div class="status-item">
+        <span id="fps-display">-- FPS</span>
+      </div>
+      <div class="status-item">
+        <span id="detection-count">検出: 0</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section id="video-section">
+      <div class="video-container">
+        <video id="webcam" playsinline muted></video>
+        <canvas id="overlay"></canvas>
+        <div id="progress-container">
+          <div id="progress-label">初期化中...</div>
+          <div class="progress-bar">
+            <div id="progress-fill" class="progress-fill"></div>
+          </div>
+          <div id="progress-text"></div>
+        </div>
+      </div>
+      <div class="video-toolbar">
+        <button id="btn-zone" title="監視ゾーンを描画">ゾーン設定</button>
+        <button id="btn-clear-zone" class="danger" title="ゾーンを解除">ゾーン解除</button>
+        <span id="zone-indicator" class="zone-indicator">ゾーン設定済</span>
+        <button id="btn-monitor" title="監視開始/停止">監視開始</button>
+      </div>
+    </section>
+
+    <aside id="sidebar">
+      <div class="panel">
+        <div class="panel-title">検出設定</div>
+        <div class="setting-row">
+          <span class="setting-label">しきい値</span>
+          <span><input type="range" id="threshold" min="0.1" max="0.9" step="0.05" value="0.5"> <span id="threshold-val">0.50</span></span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">対象ラベル</span>
+          <select id="target-label">
+            <option value="person" selected>person（人）</option>
+            <option value="all">全ラベル</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">監視設定</div>
+        <div class="setting-row">
+          <span class="setting-label">監視モード</span>
+          <select id="monitor-mode">
+            <option value="absence">不在検知</option>
+            <option value="presence">侵入検知</option>
+          </select>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">検知遅延</span>
+          <span><input type="range" id="alert-delay" min="1" max="60" step="1" value="10"> <span id="delay-val">10</span>秒</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">通知設定</div>
+        <div class="setting-row">
+          <span class="setting-label">ntfy トピック</span>
+          <input type="text" id="ntfy-topic" placeholder="baby-monitor-xxxx" style="width:140px">
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">クールダウン</span>
+          <span><input type="range" id="cooldown" min="10" max="300" step="10" value="60"> <span id="cooldown-val">60</span>秒</span>
+        </div>
+        <div class="checkbox-row">
+          <input type="checkbox" id="sound-alert" checked>
+          <label for="sound-alert" class="setting-label">音声アラート</label>
+        </div>
+        <div class="checkbox-row">
+          <input type="checkbox" id="push-alert" checked>
+          <label for="push-alert" class="setting-label">プッシュ通知 (ntfy)</label>
+        </div>
+      </div>
+
+      <div class="panel" style="flex:1">
+        <div class="panel-title">アラートログ</div>
+        <div id="alert-log"></div>
+      </div>
+    </aside>
+  </main>
+
+  <footer>
+    <span>RF-DETR Base | onnx-community/rfdetr_base-ONNX | Apache-2.0</span>
+    <span id="model-status">未読み込み</span>
+  </footer>
+
+  <script type="module">
+    import { pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3';
+
+    // ── State ──
+    const state = {
+      detector: null,
+      isMonitoring: false,
+      isDrawingZone: false,
+      zone: null,
+      zoneStart: null,
+      lastAlertTime: 0,
+      absenceStart: null,
+      presenceStart: null,
+      lastFrameTime: performance.now(),
+      fps: 0,
+    };
+
+    // ── DOM ──
+    const $ = (id) => document.getElementById(id);
+    const video = $('webcam');
+    const overlay = $('overlay');
+    const ctx = overlay.getContext('2d');
+    const inputCanvas = document.createElement('canvas');
+    const inputCtx = inputCanvas.getContext('2d', { willReadFrequently: true });
+
+    // ── Random topic generator ──
+    function generateTopic() {
+      const c = 'abcdefghijklmnopqrstuvwxyz0123456789';
+      let r = 'baby-monitor-';
+      for (let i = 0; i < 8; i++) r += c[Math.floor(Math.random() * c.length)];
+      return r;
+    }
+
+    // ── Settings persistence ──
+    function loadSettings() {
+      const saved = localStorage.getItem('baby-monitor-settings');
+      if (saved) {
+        try {
+          const s = JSON.parse(saved);
+          $('threshold').value = s.threshold ?? 0.5;
+          $('target-label').value = s.targetLabel ?? 'person';
+          $('monitor-mode').value = s.monitorMode ?? 'absence';
+          $('alert-delay').value = s.alertDelay ?? 10;
+          $('ntfy-topic').value = s.ntfyTopic || generateTopic();
+          $('cooldown').value = s.cooldown ?? 60;
+          $('sound-alert').checked = s.soundAlert ?? true;
+          $('push-alert').checked = s.pushAlert ?? true;
+          if (s.zone) state.zone = s.zone;
+        } catch { /* ignore corrupt data */ }
+      } else {
+        $('ntfy-topic').value = generateTopic();
+      }
+      updateDisplay();
+    }
+
+    function saveSettings() {
+      localStorage.setItem('baby-monitor-settings', JSON.stringify({
+        threshold: +$('threshold').value,
+        targetLabel: $('target-label').value,
+        monitorMode: $('monitor-mode').value,
+        alertDelay: +$('alert-delay').value,
+        ntfyTopic: $('ntfy-topic').value,
+        cooldown: +$('cooldown').value,
+        soundAlert: $('sound-alert').checked,
+        pushAlert: $('push-alert').checked,
+        zone: state.zone,
+      }));
+    }
+
+    function updateDisplay() {
+      $('threshold-val').textContent = (+$('threshold').value).toFixed(2);
+      $('delay-val').textContent = $('alert-delay').value;
+      $('cooldown-val').textContent = $('cooldown').value;
+    }
+
+    for (const id of ['threshold', 'alert-delay', 'cooldown', 'ntfy-topic',
+      'target-label', 'monitor-mode', 'sound-alert', 'push-alert']) {
+      $(id).addEventListener('input', () => { updateDisplay(); saveSettings(); });
+    }
+
+    // ── Alert Log ──
+    function addLog(msg, type = 'info') {
+      const log = $('alert-log');
+      const time = new Date().toLocaleTimeString('ja-JP');
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+      entry.innerHTML = `<span class="log-time">${time}</span><span class="log-msg ${type}">${msg}</span>`;
+      log.prepend(entry);
+      while (log.children.length > 50) log.lastChild.remove();
+    }
+
+    // ── Audio Alert ──
+    let audioCtx;
+    function playAlertSound() {
+      if (!$('sound-alert').checked) return;
+      if (!audioCtx) audioCtx = new AudioContext();
+      for (const [freq, offset] of [[880, 0], [1100, 0.2], [880, 0.4]]) {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.frequency.value = freq;
+        gain.gain.value = 0.2;
+        osc.start(audioCtx.currentTime + offset);
+        osc.stop(audioCtx.currentTime + offset + 0.15);
+      }
+    }
+
+    // ── ntfy.sh Push ──
+    async function sendPush(title, message) {
+      if (!$('push-alert').checked) return;
+      const topic = $('ntfy-topic').value.trim();
+      if (!topic) return;
+      try {
+        await fetch(`https://ntfy.sh/${topic}`, {
+          method: 'POST',
+          headers: { 'Title': title, 'Priority': '4', 'Tags': 'warning' },
+          body: message,
+        });
+        addLog(`通知送信: ${topic}`, 'info');
+      } catch (e) {
+        addLog(`通知エラー: ${e.message}`, 'alert');
+      }
+    }
+
+    // ── Alert Logic ──
+    function triggerAlert(reason) {
+      const now = Date.now();
+      const cooldown = +$('cooldown').value * 1000;
+      if (now - state.lastAlertTime < cooldown) return;
+      state.lastAlertTime = now;
+
+      addLog(reason, 'alert');
+      playAlertSound();
+      sendPush('AI ベビーモニター', `${reason}\n${new Date().toLocaleTimeString('ja-JP')}`);
+
+      $('video-section').classList.add('alerting');
+      setTimeout(() => $('video-section').classList.remove('alerting'), 5000);
+    }
+
+    function checkAlert(personInZone) {
+      if (!state.isMonitoring || !state.zone) return;
+      const mode = $('monitor-mode').value;
+      const delay = +$('alert-delay').value * 1000;
+      const now = Date.now();
+
+      if (mode === 'absence') {
+        if (personInZone) {
+          state.absenceStart = null;
+        } else {
+          if (!state.absenceStart) state.absenceStart = now;
+          if (now - state.absenceStart >= delay) {
+            triggerAlert('不在検知: ゾーン内に人が検出されません');
+            state.absenceStart = now;
+          }
+        }
+      } else {
+        if (!personInZone) {
+          state.presenceStart = null;
+        } else {
+          if (!state.presenceStart) state.presenceStart = now;
+          if (now - state.presenceStart >= delay) {
+            triggerAlert('侵入検知: ゾーン内に人を検出しました');
+            state.presenceStart = now;
+          }
+        }
+      }
+    }
+
+    // ── Zone Drawing ──
+    function canvasCoords(e) {
+      const r = overlay.getBoundingClientRect();
+      const src = e.touches ? e.touches[0] : e;
+      return { x: (src.clientX - r.left) / r.width, y: (src.clientY - r.top) / r.height };
+    }
+
+    function onZoneStart(e) {
+      if (!state.isDrawingZone) return;
+      e.preventDefault();
+      state.zoneStart = canvasCoords(e);
+    }
+
+    function onZoneMove(e) {
+      if (!state.isDrawingZone || !state.zoneStart) return;
+      e.preventDefault();
+      const c = canvasCoords(e);
+      state.zone = {
+        xmin: Math.min(state.zoneStart.x, c.x),
+        ymin: Math.min(state.zoneStart.y, c.y),
+        xmax: Math.max(state.zoneStart.x, c.x),
+        ymax: Math.max(state.zoneStart.y, c.y),
+      };
+    }
+
+    function onZoneEnd() {
+      if (!state.isDrawingZone) return;
+      state.zoneStart = null;
+      state.isDrawingZone = false;
+      $('btn-zone').classList.remove('active');
+      overlay.style.cursor = 'default';
+      if (state.zone) {
+        $('zone-indicator').classList.add('show');
+        addLog('監視ゾーン設定完了', 'ok');
+        saveSettings();
+      }
+    }
+
+    overlay.addEventListener('mousedown', onZoneStart);
+    overlay.addEventListener('mousemove', onZoneMove);
+    overlay.addEventListener('mouseup', onZoneEnd);
+    overlay.addEventListener('touchstart', onZoneStart, { passive: false });
+    overlay.addEventListener('touchmove', onZoneMove, { passive: false });
+    overlay.addEventListener('touchend', onZoneEnd);
+
+    $('btn-zone').addEventListener('click', () => {
+      state.isDrawingZone = !state.isDrawingZone;
+      $('btn-zone').classList.toggle('active', state.isDrawingZone);
+      overlay.style.cursor = state.isDrawingZone ? 'crosshair' : 'default';
+      if (state.isDrawingZone) addLog('ゾーン描画モード: ドラッグで範囲指定', 'info');
+    });
+
+    $('btn-clear-zone').addEventListener('click', () => {
+      state.zone = null;
+      state.absenceStart = null;
+      state.presenceStart = null;
+      $('zone-indicator').classList.remove('show');
+      addLog('監視ゾーン解除', 'info');
+      saveSettings();
+    });
+
+    $('btn-monitor').addEventListener('click', () => {
+      state.isMonitoring = !state.isMonitoring;
+      $('btn-monitor').textContent = state.isMonitoring ? '監視停止' : '監視開始';
+      $('btn-monitor').classList.toggle('active', state.isMonitoring);
+      if (state.isMonitoring) {
+        if (!state.zone) addLog('警告: 監視ゾーンが未設定です', 'alert');
+        state.absenceStart = null;
+        state.presenceStart = null;
+        addLog(`監視開始 (${$('monitor-mode').value === 'absence' ? '不在検知' : '侵入検知'})`, 'ok');
+        $('video-section').classList.add('monitoring-active');
+      } else {
+        addLog('監視停止', 'info');
+        $('video-section').classList.remove('monitoring-active');
+      }
+    });
+
+    // ── Draw Helpers ──
+    const COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899'];
+
+    function drawZone() {
+      if (!state.zone) return;
+      const z = state.zone;
+      const x = z.xmin * overlay.width;
+      const y = z.ymin * overlay.height;
+      const w = (z.xmax - z.xmin) * overlay.width;
+      const h = (z.ymax - z.ymin) * overlay.height;
+
+      ctx.fillStyle = state.isMonitoring
+        ? 'rgba(74, 158, 255, 0.08)'
+        : 'rgba(74, 158, 255, 0.04)';
+      ctx.fillRect(x, y, w, h);
+
+      ctx.setLineDash([6, 4]);
+      ctx.strokeStyle = state.isMonitoring
+        ? 'rgba(74, 158, 255, 0.6)'
+        : 'rgba(74, 158, 255, 0.3)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, w, h);
+      ctx.setLineDash([]);
+
+      ctx.font = '600 11px system-ui';
+      const label = state.isMonitoring
+        ? ($('monitor-mode').value === 'absence' ? '不在監視中' : '侵入監視中')
+        : '監視ゾーン';
+      ctx.fillStyle = 'rgba(74, 158, 255, 0.8)';
+      ctx.fillText(label, x + 4, y + 14);
+    }
+
+    function drawDetections(results) {
+      ctx.font = '600 13px system-ui';
+      ctx.lineWidth = 2;
+      let personInZone = false;
+      const targetLabel = $('target-label').value;
+
+      for (let i = 0; i < results.length; i++) {
+        const { box, label, score } = results[i];
+        if (targetLabel !== 'all' && label !== targetLabel) continue;
+
+        const color = label === 'person' ? '#3b82f6' : COLORS[(i + 1) % COLORS.length];
+        const x = box.xmin * overlay.width;
+        const y = box.ymin * overlay.height;
+        const w = (box.xmax - box.xmin) * overlay.width;
+        const h = (box.ymax - box.ymin) * overlay.height;
+
+        if (label === 'person' && state.zone) {
+          const cx = (box.xmin + box.xmax) / 2;
+          const cy = (box.ymin + box.ymax) / 2;
+          if (cx >= state.zone.xmin && cx <= state.zone.xmax &&
+              cy >= state.zone.ymin && cy <= state.zone.ymax) {
+            personInZone = true;
+          }
+        }
+
+        ctx.strokeStyle = color;
+        ctx.strokeRect(x, y, w, h);
+
+        const text = `${label} ${(score * 100).toFixed(0)}%`;
+        const tw = ctx.measureText(text).width;
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y - 20, tw + 10, 20);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(text, x + 5, y - 5);
+      }
+
+      return personInZone;
+    }
+
+    // ── Webcam ──
+    async function startWebcam() {
+      $('progress-label').textContent = 'カメラ起動中...';
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false,
+      });
+      video.srcObject = stream;
+      await new Promise((r) => (video.onloadedmetadata = r));
+      video.play();
+
+      inputCanvas.width = video.videoWidth;
+      inputCanvas.height = video.videoHeight;
+      overlay.width = video.videoWidth;
+      overlay.height = video.videoHeight;
+
+      const syncSize = () => {
+        overlay.style.width = video.offsetWidth + 'px';
+        overlay.style.height = video.offsetHeight + 'px';
+      };
+      syncSize();
+      new ResizeObserver(syncSize).observe(video);
+
+      addLog(`カメラ起動: ${video.videoWidth}x${video.videoHeight}`, 'ok');
+    }
+
+    // ── Model Loading ──
+    async function loadModel() {
+      const hasWebGPU = !!navigator.gpu;
+      $('webgpu-status').className = `dot ${hasWebGPU ? 'dot-green' : 'dot-yellow'}`;
+      $('webgpu-label').textContent = hasWebGPU ? 'WebGPU' : 'WASM (fallback)';
+
+      const device = hasWebGPU ? 'webgpu' : 'wasm';
+      $('progress-label').textContent = `RF-DETR 読み込み中 (${device})...`;
+
+      state.detector = await pipeline(
+        'object-detection',
+        'onnx-community/rfdetr_base-ONNX',
+        {
+          device,
+          dtype: 'fp32',
+          progress_callback: (p) => {
+            if (p.status === 'progress' && p.total) {
+              const pct = Math.round((p.loaded / p.total) * 100);
+              $('progress-fill').style.width = pct + '%';
+              const mb = (p.loaded / 1e6).toFixed(1);
+              const total = (p.total / 1e6).toFixed(1);
+              $('progress-text').textContent = `${p.file}: ${mb} / ${total} MB (${pct}%)`;
+            }
+          },
+        }
+      );
+
+      $('progress-label').textContent = 'シェーダーコンパイル中...';
+      $('progress-fill').style.width = '100%';
+      inputCtx.drawImage(video, 0, 0, inputCanvas.width, inputCanvas.height);
+      await state.detector(inputCanvas, { threshold: 0.5, percentage: true });
+
+      $('progress-container').style.display = 'none';
+      $('model-status').textContent = '読み込み完了';
+      $('status-dot').className = 'dot dot-green';
+      addLog('RF-DETR Base 読み込み完了', 'ok');
+    }
+
+    // ── Detection Loop ──
+    async function loop() {
+      const now = performance.now();
+      const dt = now - state.lastFrameTime;
+      state.lastFrameTime = now;
+      if (dt > 0) {
+        state.fps = state.fps * 0.9 + (1000 / dt) * 0.1;
+        $('fps-display').textContent = `${state.fps.toFixed(1)} FPS`;
+      }
+
+      inputCtx.drawImage(video, 0, 0, inputCanvas.width, inputCanvas.height);
+
+      const results = await state.detector(inputCanvas, {
+        threshold: +$('threshold').value,
+        percentage: true,
+      });
+
+      const persons = results.filter((r) => r.label === 'person').length;
+      $('detection-count').textContent = `検出: ${persons}人`;
+
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+      drawZone();
+      const personInZone = drawDetections(results);
+      checkAlert(personInZone);
+
+      requestAnimationFrame(loop);
+    }
+
+    // ── Init ──
+    async function init() {
+      try {
+        loadSettings();
+        if (state.zone) $('zone-indicator').classList.add('show');
+        await startWebcam();
+        await loadModel();
+        requestAnimationFrame(loop);
+      } catch (e) {
+        $('progress-label').textContent = `エラー: ${e.message}`;
+        $('progress-label').style.color = 'var(--danger)';
+        addLog(`起動エラー: ${e.message}`, 'alert');
+        console.error(e);
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
