@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>カメラテスト</title>
+  <style>
+    body { background: #111; color: #eee; font-family: monospace; padding: 20px; }
+    video { width: 640px; max-width: 100%; border: 2px solid #333; }
+    #log { white-space: pre-wrap; margin-top: 16px; font-size: 13px; color: #aaa; }
+    button { padding: 10px 24px; font-size: 16px; cursor: pointer; margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+  <h2>カメラ接続テスト</h2>
+  <button id="start">カメラ起動</button>
+  <br>
+  <video id="v" autoplay playsinline muted></video>
+  <div id="log"></div>
+
+  <script>
+    const log = (msg) => {
+      const d = document.getElementById('log');
+      d.textContent += new Date().toLocaleTimeString() + ' ' + msg + '\n';
+      console.log(msg);
+    };
+
+    document.getElementById('start').addEventListener('click', async () => {
+      log('開始...');
+
+      // 1. デバイス一覧
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cams = devices.filter(d => d.kind === 'videoinput');
+        log('カメラデバイス数: ' + cams.length);
+        cams.forEach((c, i) => log('  [' + i + '] ' + (c.label || c.deviceId)));
+      } catch (e) {
+        log('enumerateDevices エラー: ' + e.message);
+      }
+
+      // 2. getUserMedia
+      try {
+        log('getUserMedia 呼び出し中...');
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        log('ストリーム取得成功! tracks: ' + stream.getVideoTracks().length);
+        stream.getVideoTracks().forEach(t => log('  track: ' + t.label + ' state=' + t.readyState));
+
+        const video = document.getElementById('v');
+        video.srcObject = stream;
+        video.onloadedmetadata = () => {
+          log('メタデータ読み込み完了: ' + video.videoWidth + 'x' + video.videoHeight);
+        };
+        await video.play();
+        log('再生開始');
+      } catch (e) {
+        log('getUserMedia エラー: ' + e.name + ' - ' + e.message);
+      }
+    });
+
+    log('ページ読み込み完了。「カメラ起動」をクリックしてください。');
+  </script>
+</body>
+</html>

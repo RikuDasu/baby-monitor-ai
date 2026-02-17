@@ -336,8 +336,9 @@
         <video id="webcam" playsinline muted></video>
         <canvas id="overlay"></canvas>
         <div id="progress-container">
-          <div id="progress-label">初期化中...</div>
-          <div class="progress-bar">
+          <div id="progress-label">カメラを起動するにはボタンをクリック</div>
+          <button id="btn-start" style="margin-top:16px;padding:10px 32px;font-size:16px;background:var(--accent-dim);border-color:var(--accent);color:white;">カメラ起動</button>
+          <div class="progress-bar" style="margin-top:12px">
             <div id="progress-fill" class="progress-fill"></div>
           </div>
           <div id="progress-text"></div>
@@ -732,15 +733,49 @@
     }
 
     // ── Webcam ──
+    function withTimeout(promise, ms, msg) {
+      return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error(msg)), ms)),
+      ]);
+    }
+
     async function startWebcam() {
-      $('progress-label').textContent = 'カメラ起動中...';
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
-        audio: false,
-      });
+      $('progress-label').textContent = 'カメラ許可を要求中...';
+      addLog('getUserMedia 呼び出し中...', 'info');
+
+      let stream;
+      try {
+        stream = await withTimeout(
+          navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 640 }, height: { ideal: 480 } },
+            audio: false,
+          }),
+          15000,
+          'カメラ許可がタイムアウト（15秒）。ブラウザのカメラ許可を確認してください。'
+        );
+      } catch (e) {
+        // Show detailed error
+        if (e.name === 'NotAllowedError') {
+          throw new Error('カメラへのアクセスが拒否されました。ブラウザの設定でカメラを許可してください。');
+        } else if (e.name === 'NotFoundError') {
+          throw new Error('カメラが見つかりません。ウェブカメラが接続されているか確認してください。');
+        } else if (e.name === 'NotReadableError') {
+          throw new Error('カメラが他のアプリで使用中です。他のアプリを閉じてください。');
+        }
+        throw e;
+      }
+
+      addLog('カメラストリーム取得成功', 'ok');
+      $('progress-label').textContent = 'ビデオ初期化中...';
+
       video.srcObject = stream;
-      await new Promise((r) => (video.onloadedmetadata = r));
-      video.play();
+      await withTimeout(
+        new Promise((r) => { video.onloadedmetadata = r; }),
+        5000,
+        'ビデオメタデータのタイムアウト'
+      );
+      await video.play();
 
       inputCanvas.width = video.videoWidth;
       inputCanvas.height = video.videoHeight;
@@ -824,22 +859,34 @@
     }
 
     // ── Init ──
-    async function init() {
+    async function startAll() {
+      $('btn-start').disabled = true;
+      $('btn-start').textContent = '起動中...';
+
       try {
-        loadSettings();
-        if (state.zone) $('zone-indicator').classList.add('show');
+        addLog('カメラ起動中...', 'info');
         await startWebcam();
+
+        addLog('モデル読み込み開始...', 'info');
         await loadModel();
+
         requestAnimationFrame(loop);
       } catch (e) {
         $('progress-label').textContent = `エラー: ${e.message}`;
         $('progress-label').style.color = 'var(--danger)';
+        $('progress-fill').style.background = 'var(--danger)';
+        $('progress-fill').style.width = '100%';
+        $('btn-start').textContent = '再試行';
+        $('btn-start').disabled = false;
         addLog(`起動エラー: ${e.message}`, 'alert');
         console.error(e);
       }
     }
 
-    init();
+    loadSettings();
+    if (state.zone) $('zone-indicator').classList.add('show');
+
+    $('btn-start').addEventListener('click', startAll);
   </script>
 </body>
 </html>
