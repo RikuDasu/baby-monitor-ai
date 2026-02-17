@@ -2,61 +2,89 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>カメラテスト</title>
+  <title>カメラテスト v2</title>
   <style>
     body { background: #111; color: #eee; font-family: monospace; padding: 20px; }
-    video { width: 640px; max-width: 100%; border: 2px solid #333; }
-    #log { white-space: pre-wrap; margin-top: 16px; font-size: 13px; color: #aaa; }
-    button { padding: 10px 24px; font-size: 16px; cursor: pointer; margin-bottom: 16px; }
+    video { width: 640px; max-width: 100%; border: 2px solid #333; display: block; margin: 12px 0; }
+    #log { white-space: pre-wrap; margin-top: 16px; font-size: 13px; color: #aaa; max-height: 400px; overflow-y: auto; }
+    button { padding: 10px 24px; font-size: 16px; cursor: pointer; margin: 4px; }
   </style>
 </head>
 <body>
-  <h2>カメラ接続テスト</h2>
-  <button id="start">カメラ起動</button>
+  <h2>カメラテスト v2 (最小構成)</h2>
+  <button id="test1">1. API存在チェック</button>
+  <button id="test2">2. getUserMedia (10秒タイムアウト)</button>
+  <button id="test3">3. enumerateDevices (5秒タイムアウト)</button>
   <br>
   <video id="v" autoplay playsinline muted></video>
   <div id="log"></div>
 
   <script>
+    const logEl = document.getElementById('log');
     const log = (msg) => {
-      const d = document.getElementById('log');
-      d.textContent += new Date().toLocaleTimeString() + ' ' + msg + '\n';
+      const t = new Date().toLocaleTimeString('ja-JP');
+      logEl.textContent += t + ' ' + msg + '\n';
+      logEl.scrollTop = logEl.scrollHeight;
       console.log(msg);
     };
 
-    document.getElementById('start').addEventListener('click', async () => {
-      log('開始...');
+    function timeout(ms) {
+      return new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('タイムアウト (' + ms + 'ms)')), ms)
+      );
+    }
 
-      // 1. デバイス一覧
+    // Test 1: API existence check
+    document.getElementById('test1').onclick = () => {
+      log('--- API チェック ---');
+      log('navigator.mediaDevices: ' + (!!navigator.mediaDevices));
+      log('getUserMedia: ' + (typeof navigator.mediaDevices?.getUserMedia));
+      log('enumerateDevices: ' + (typeof navigator.mediaDevices?.enumerateDevices));
+      log('isSecureContext: ' + window.isSecureContext);
+      log('protocol: ' + location.protocol);
+      log('userAgent: ' + navigator.userAgent.slice(0, 100));
+    };
+
+    // Test 2: getUserMedia with timeout
+    document.getElementById('test2').onclick = async () => {
+      log('--- getUserMedia テスト ---');
+      log('呼び出し中... (10秒タイムアウト)');
       try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const cams = devices.filter(d => d.kind === 'videoinput');
-        log('カメラデバイス数: ' + cams.length);
-        cams.forEach((c, i) => log('  [' + i + '] ' + (c.label || c.deviceId)));
-      } catch (e) {
-        log('enumerateDevices エラー: ' + e.message);
-      }
-
-      // 2. getUserMedia
-      try {
-        log('getUserMedia 呼び出し中...');
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        log('ストリーム取得成功! tracks: ' + stream.getVideoTracks().length);
-        stream.getVideoTracks().forEach(t => log('  track: ' + t.label + ' state=' + t.readyState));
-
+        const stream = await Promise.race([
+          navigator.mediaDevices.getUserMedia({ video: true }),
+          timeout(10000),
+        ]);
+        log('成功! tracks: ' + stream.getVideoTracks().length);
+        const track = stream.getVideoTracks()[0];
+        log('track: ' + track.label + ' state=' + track.readyState);
         const video = document.getElementById('v');
         video.srcObject = stream;
-        video.onloadedmetadata = () => {
-          log('メタデータ読み込み完了: ' + video.videoWidth + 'x' + video.videoHeight);
-        };
         await video.play();
-        log('再生開始');
+        log('再生開始: ' + video.videoWidth + 'x' + video.videoHeight);
       } catch (e) {
-        log('getUserMedia エラー: ' + e.name + ' - ' + e.message);
+        log('エラー: ' + e.name + ' - ' + e.message);
       }
-    });
+    };
 
-    log('ページ読み込み完了。「カメラ起動」をクリックしてください。');
+    // Test 3: enumerateDevices with timeout
+    document.getElementById('test3').onclick = async () => {
+      log('--- enumerateDevices テスト ---');
+      log('呼び出し中... (5秒タイムアウト)');
+      try {
+        const devices = await Promise.race([
+          navigator.mediaDevices.enumerateDevices(),
+          timeout(5000),
+        ]);
+        log('成功! デバイス数: ' + devices.length);
+        devices.forEach((d, i) => {
+          log('  [' + i + '] ' + d.kind + ': ' + (d.label || d.deviceId.slice(0, 16)));
+        });
+      } catch (e) {
+        log('エラー: ' + e.name + ' - ' + e.message);
+      }
+    };
+
+    log('ページ読み込み完了。ボタンを順番にクリックしてください。');
   </script>
 </body>
 </html>
